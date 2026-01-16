@@ -118,21 +118,24 @@ def process_uploaded_pdfs(uploaded_files):
         return False, str(e)
 
 def query_rag(query_text: str, api_key: str = None):
-    """Query the RAG system"""
+    """Query the RAG system using session state"""
     try:
-        # Prepare the DB
-        embedding_function = get_embedding_function()
-
-        if not os.path.exists(CHROMA_PATH):
+        # Check if documents are loaded
+        if 'document_chunks' not in st.session_state or not st.session_state['document_chunks']:
             return "⚠️ Please upload and process PDF documents first using the sidebar.", []
 
-        db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
-
-        # Search the DB - get top 5 results
-        results = db.similarity_search_with_score(query_text, k=5)
+        chunks = st.session_state['document_chunks']
+        embedding_function = st.session_state['embedding_function']
+        
+        # Create temporary in-memory vector store for search
+        from langchain_community.vectorstores import FAISS
+        
+        with st.spinner("🔍 Searching..."):
+            db = FAISS.from_documents(chunks, embedding_function)
+            results = db.similarity_search_with_score(query_text, k=5)
 
         if not results:
-            return "No documents found in database. Please upload PDFs first.", []
+            return "No relevant information found.", []
 
         # Combine all relevant context
         all_context = "\n\n".join([doc.page_content for doc, _score in results])
@@ -197,18 +200,11 @@ def main():
         st.divider()
         
         st.subheader("📊 Database Status")
-        if os.path.exists(CHROMA_PATH):
-            try:
-                db = Chroma(persist_directory=CHROMA_PATH, embedding_function=get_embedding_function())
-                doc_count = db._collection.count()
-                st.success(f"✅ Database active\n\n📄 {doc_count} chunks indexed")
-            except:
-                st.warning("⚠️ Database exists but may need reinitialization")
+        if 'document_chunks' in st.session_state and st.session_state['document_chunks']:
+            doc_count = len(st.session_state['document_chunks'])
+            st.success(f"✅ Database active\n\n📄 {doc_count} chunks indexed")
         else:
-            st.error("❌ Database not initialized")
-        
-        st.divider()
-        
+            st.error("❌ No documents loaded")
         st.subheader("ℹ️ How to Use")
         st.markdown("""
         1. **With OpenAI API**: Enter your API key above for AI-generated answers
