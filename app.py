@@ -19,7 +19,8 @@ st.set_page_config(
     layout="wide"
 )
 
-CHROMA_PATH = "chroma"
+# Use /tmp directory for Streamlit Cloud (writable)
+CHROMA_PATH = os.path.join(tempfile.gettempdir(), "chroma_db")
 DATA_PATH = "data"
 
 PROMPT_TEMPLATE = """
