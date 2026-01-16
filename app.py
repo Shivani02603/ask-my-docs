@@ -1,0 +1,162 @@
+import streamlit as st
+import os
+from langchain_community.vectorstores import Chroma
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.llms import HuggingFaceHub
+from langchain_openai import ChatOpenAI
+import shutil
+
+# Page config
+st.set_page_config(
+    page_title="RAG Document Q&A System",
+    page_icon="📚",
+    layout="wide"
+)
+
+CHROMA_PATH = "chroma"
+DATA_PATH = "data"
+
+PROMPT_TEMPLATE = """
+Answer the question based only on the following context:
+
+{context}
+
+---
+
+Answer the question based on the above context: {question}
+"""
+
+def get_embedding_function():
+    """Get embedding function - using free HuggingFace embeddings"""
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+    return embeddings
+
+def query_rag(query_text: str, api_key: str = None):
+    """Query the RAG system"""
+    try:
+        # Prepare the DB
+        embedding_function = get_embedding_function()
+        
+        if not os.path.exists(CHROMA_PATH):
+            return "⚠️ Database not initialized. Please populate the database first using the sidebar.", []
+        
+        db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
+        
+        # Search the DB
+        results = db.similarity_search_with_score(query_text, k=5)
+        
+        if not results:
+            return "No relevant documents found.", []
+        
+        context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
+        prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
+        prompt = prompt_template.format(context=context_text, question=query_text)
+        
+        # Use OpenAI if API key provided, otherwise return context only
+        if api_key:
+            try:
+                model = ChatOpenAI(model="gpt-3.5-turbo", api_key=api_key, temperature=0)
+                response_text = model.invoke(prompt).content
+            except Exception as e:
+                response_text = f"⚠️ Error with OpenAI API: {str(e)}\n\nRelevant context found:\n{context_text}"
+        else:
+            response_text = f"💡 No API key provided. Here's the relevant context:\n\n{context_text}"
+        
+        sources = [doc.metadata.get("id", "Unknown") for doc, _score in results]
+        
+        return response_text, sources
+        
+    except Exception as e:
+        return f"❌ Error: {str(e)}", []
+
+def main():
+    st.title("📚 RAG Document Q&A System")
+    st.markdown("Ask questions about your documents using AI-powered search")
+    
+    # Sidebar
+    with st.sidebar:
+        st.header("⚙️ Settings")
+        
+        # API Key input
+        api_key = st.text_input(
+            "OpenAI API Key (Optional)", 
+            type="password",
+            help="Provide your OpenAI API key for GPT-powered answers. Leave blank to see context only."
+        )
+        
+        st.divider()
+        
+        st.subheader("📊 Database Status")
+        if os.path.exists(CHROMA_PATH):
+            try:
+                db = Chroma(persist_directory=CHROMA_PATH, embedding_function=get_embedding_function())
+                doc_count = db._collection.count()
+                st.success(f"✅ Database active\n\n📄 {doc_count} chunks indexed")
+            except:
+                st.warning("⚠️ Database exists but may need reinitialization")
+        else:
+            st.error("❌ Database not initialized")
+        
+        st.divider()
+        
+        st.subheader("ℹ️ How to Use")
+        st.markdown("""
+        1. **With OpenAI API**: Enter your API key above for AI-generated answers
+        2. **Without API**: Get relevant document excerpts only
+        3. Type your question in the main area
+        4. Click 'Search' to get answers
+        """)
+        
+        st.divider()
+        st.caption("Built with LangChain + ChromaDB + Streamlit")
+    
+    # Main area
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        query = st.text_area(
+            "Your Question:",
+            placeholder="e.g., What are the rules of Monopoly?",
+            height=100
+        )
+    
+    with col2:
+        st.write("")
+        st.write("")
+        search_button = st.button("🔍 Search", type="primary", use_container_width=True)
+    
+    if search_button and query:
+        with st.spinner("🔎 Searching documents..."):
+            response, sources = query_rag(query, api_key)
+        
+        st.divider()
+        
+        # Display response
+        st.subheader("📝 Answer")
+        st.markdown(response)
+        
+        # Display sources
+        if sources:
+            st.divider()
+            st.subheader("📎 Sources")
+            for i, source in enumerate(sources, 1):
+                st.caption(f"{i}. {source}")
+    
+    elif search_button:
+        st.warning("⚠️ Please enter a question first")
+    
+    # Example questions
+    with st.expander("💡 Example Questions"):
+        st.markdown("""
+        Try asking:
+        - What are the basic rules?
+        - How do players win?
+        - What happens when you land on a property?
+        - Explain the game setup
+        """)
+
+if __name__ == "__main__":
+    main()

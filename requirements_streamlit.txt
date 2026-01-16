@@ -1,0 +1,7 @@
+streamlit>=1.28.0
+pypdf
+langchain
+langchain-community
+langchain-openai
+chromadb
+sentence-transformers
