@@ -125,13 +125,25 @@ def query_rag(query_text: str, api_key: str = None):
 
         db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
-        # Search the DB
-        results = db.similarity_search_with_score(query_text, k=5)
+        # Search the DB with better relevance
+        results = db.similarity_search_with_score(query_text, k=3)
 
         if not results:
             return "No relevant documents found.", []
 
-        context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
+        # Filter results by relevance score (lower is better for distance metrics)
+        relevant_results = [(doc, score) for doc, score in results if score < 1.5]
+        
+        if not relevant_results:
+            return "No sufficiently relevant information found. Try rephrasing your question.", []
+
+        # Build focused context from top results
+        context_parts = []
+        for idx, (doc, score) in enumerate(relevant_results, 1):
+            context_parts.append(f"[Excerpt {idx}]:\n{doc.page_content}")
+        
+        context_text = "\n\n".join(context_parts)
+        
         prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
         prompt = prompt_template.format(context=context_text, question=query_text)
 
@@ -141,11 +153,14 @@ def query_rag(query_text: str, api_key: str = None):
                 model = ChatOpenAI(model="gpt-3.5-turbo", api_key=api_key, temperature=0)
                 response_text = model.invoke(prompt).content
             except Exception as e:
-                response_text = f"⚠️ Error with OpenAI API: {str(e)}\n\nRelevant context found:\n{context_text}"
+                response_text = f"⚠️ Error with OpenAI API: {str(e)}\n\n**Relevant information found:**\n\n{context_text}"
         else:
-            response_text = f"💡 No API key provided. Here's the relevant context:\n\n{context_text}"
+            # Format a better response without API
+            response_text = f"**📌 Based on your question: '{query_text}'**\n\n"
+            response_text += f"**Here are the most relevant excerpts from your documents:**\n\n{context_text}\n\n"
+            response_text += f"💡 *Tip: Add an OpenAI API key in settings for AI-generated answers.*"
 
-        sources = [doc.metadata.get("id", "Unknown") for doc, _score in results]
+        sources = [doc.metadata.get("source", "Unknown") for doc, _score in relevant_results]
 
         return response_text, sources
 
