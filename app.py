@@ -169,6 +169,16 @@ def main():
     st.title("📚 RAG Document Q&A System")
     st.markdown("Ask questions about your documents using AI-powered search")
 
+    # Auto-initialize database on first load if not exists
+    if not os.path.exists(CHROMA_PATH):
+        if os.path.exists(DATA_PATH) and any(f.endswith('.pdf') for f in os.listdir(DATA_PATH)):
+            with st.spinner("🔄 Initializing database with sample PDFs..."):
+                try:
+                    subprocess.run([sys.executable, "setup_database.py"], check=True, capture_output=True)
+                    st.success("✅ Database initialized with sample documents!")
+                except:
+                    st.warning("⚠️ Please upload PDFs to get started")
+
     # Sidebar
     with st.sidebar:
         st.header("📤 Upload PDFs")
@@ -187,6 +197,7 @@ def main():
                 if success:
                     st.success(f"✅ Successfully processed {len(uploaded_files)} PDF(s) with {result} chunks!")
                     st.balloons()
+                    st.rerun()
                 else:
                     st.error(f"❌ Error: {result}")
         
