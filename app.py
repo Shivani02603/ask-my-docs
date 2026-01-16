@@ -119,9 +119,7 @@ def query_rag(query_text: str, api_key: str = None):
         embedding_function = get_embedding_function()
 
         if not os.path.exists(CHROMA_PATH):
-            # Try to initialize automatically
-            if not initialize_database():
-                return "⚠️ Database initialization failed. Please check the logs.", []
+            return "⚠️ Please upload and process PDF documents first using the sidebar.", []
 
         db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
