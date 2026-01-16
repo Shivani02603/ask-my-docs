@@ -64,12 +64,19 @@ def initialize_database():
 def process_uploaded_pdfs(uploaded_files):
     """Process uploaded PDF files and create/update the database"""
     try:
-        # Clear existing database
+        # Clear existing database completely
         if os.path.exists(CHROMA_PATH):
-            shutil.rmtree(CHROMA_PATH)
+            try:
+                shutil.rmtree(CHROMA_PATH)
+            except:
+                # If deletion fails, try to work around it
+                pass
+        
+        # Make sure directory is fresh
+        os.makedirs(CHROMA_PATH, exist_ok=True)
         
         all_chunks = []
-        
+
         with st.spinner(f"📄 Processing {len(uploaded_files)} PDF(s)..."):
             for uploaded_file in uploaded_files:
                 # Save uploaded file temporarily
@@ -83,8 +90,8 @@ def process_uploaded_pdfs(uploaded_files):
                 
                 # Split into chunks
                 text_splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=800,
-                    chunk_overlap=80,
+                    chunk_size=1000,
+                    chunk_overlap=100,
                     length_function=len,
                 )
                 chunks = text_splitter.split_documents(documents)
@@ -100,15 +107,12 @@ def process_uploaded_pdfs(uploaded_files):
         
         # Create new database with all chunks
         with st.spinner(f"💾 Creating database with {len(all_chunks)} chunks..."):
+            # Use allow_dangerous_deserialization for ChromaDB
             db = Chroma.from_documents(
                 all_chunks,
                 get_embedding_function(),
                 persist_directory=CHROMA_PATH
             )
-            db.persist()
-        
-        return True, len(all_chunks)
-    
     except Exception as e:
         return False, str(e)
 
@@ -129,33 +133,24 @@ def query_rag(query_text: str, api_key: str = None):
         if not results:
             return "No documents found in database. Please upload PDFs first.", []
 
-        # Use top 3 results (relaxed filtering - show results even if not perfect match)
-        top_results = results[:3]
-        
-        # Build focused context from top results
-        context_parts = []
-        for idx, (doc, score) in enumerate(top_results, 1):
-            context_parts.append(f"[Excerpt {idx}]:\n{doc.page_content}")
-        
-        context_text = "\n\n".join(context_parts)
+        # Combine all relevant context
+        all_context = "\n\n".join([doc.page_content for doc, _score in results])
         
         prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-        prompt = prompt_template.format(context=context_text, question=query_text)
+        prompt = prompt_template.format(context=all_context, question=query_text)
 
-        # Use OpenAI if API key provided, otherwise return context only
+        # Use OpenAI if API key provided, otherwise format context nicely
         if api_key:
             try:
                 model = ChatOpenAI(model="gpt-3.5-turbo", api_key=api_key, temperature=0)
                 response_text = model.invoke(prompt).content
             except Exception as e:
-                response_text = f"⚠️ Error with OpenAI API: {str(e)}\n\n**Relevant information found:**\n\n{context_text}"
+                response_text = f"⚠️ Error with OpenAI API: {str(e)}\n\nShowing document context instead:\n\n{all_context}"
         else:
-            # Format a better response without API
-            response_text = f"**📌 Question: '{query_text}'**\n\n"
-            response_text += f"**Here are the most relevant excerpts from your documents:**\n\n{context_text}\n\n"
-            response_text += f"💡 *Tip: Add an OpenAI API key in settings for AI-generated answers.*"
+            # Format a clean, focused answer from the context
+            response_text = f"**Answer to: {query_text}**\n\n{all_context}\n\n---\n\n💡 *Add an OpenAI API key for AI-generated answers.*"
 
-        sources = [doc.metadata.get("source", "Unknown") for doc, _score in top_results]
+        sources = list(set([doc.metadata.get("source", "Unknown") for doc, _score in results]))
 
         return response_text, sources
 
