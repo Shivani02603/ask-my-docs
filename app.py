@@ -157,7 +157,6 @@ def query_rag(query_text: str, api_key: str = None):
 
     except Exception as e:
         return f"❌ Error: {str(e)}", []
-        return f"❌ Error: {str(e)}", []
 
 def main():
     st.title("📚 RAG Document Q&A System")
