@@ -6,6 +6,8 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import HuggingFaceHub
 from langchain_openai import ChatOpenAI
 import shutil
+import subprocess
+import sys
 
 # Page config
 st.set_page_config(
@@ -34,6 +36,28 @@ def get_embedding_function():
     )
     return embeddings
 
+def initialize_database():
+    """Initialize the database by running setup_database.py"""
+    if not os.path.exists(CHROMA_PATH):
+        with st.spinner("🔄 Initializing database for the first time... This may take a minute."):
+            try:
+                # Run setup_database.py
+                result = subprocess.run(
+                    [sys.executable, "setup_database.py"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                st.success("✅ Database initialized successfully!")
+                return True
+            except subprocess.CalledProcessError as e:
+                st.error(f"❌ Failed to initialize database: {e.stderr}")
+                return False
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                return False
+    return True
+
 def query_rag(query_text: str, api_key: str = None):
     """Query the RAG system"""
     try:
@@ -41,14 +65,9 @@ def query_rag(query_text: str, api_key: str = None):
         embedding_function = get_embedding_function()
         
         if not os.path.exists(CHROMA_PATH):
-            return "⚠️ Database not initialized. Please populate the database first using the sidebar.", []
-        
-        db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
-        
-        # Search the DB
-        results = db.similarity_search_with_score(query_text, k=5)
-        
-        if not results:
+            # Try to initialize automatically
+            if not initialize_database():
+                return "⚠️ Database initialization failed. Please check the logs.", []
             return "No relevant documents found.", []
         
         context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
