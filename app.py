@@ -5,9 +5,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import HuggingFaceHub
 from langchain_openai import ChatOpenAI
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import shutil
 import subprocess
 import sys
+import tempfile
 
 # Page config
 st.set_page_config(
@@ -58,6 +61,57 @@ def initialize_database():
                 return False
     return True
 
+def process_uploaded_pdfs(uploaded_files):
+    """Process uploaded PDF files and create/update the database"""
+    try:
+        # Clear existing database
+        if os.path.exists(CHROMA_PATH):
+            shutil.rmtree(CHROMA_PATH)
+        
+        all_chunks = []
+        
+        with st.spinner(f"📄 Processing {len(uploaded_files)} PDF(s)..."):
+            for uploaded_file in uploaded_files:
+                # Save uploaded file temporarily
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                    tmp_file.write(uploaded_file.getvalue())
+                    tmp_path = tmp_file.name
+                
+                # Load and split the PDF
+                loader = PyPDFLoader(tmp_path)
+                documents = loader.load()
+                
+                # Split into chunks
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=800,
+                    chunk_overlap=80,
+                    length_function=len,
+                )
+                chunks = text_splitter.split_documents(documents)
+                
+                # Add source filename to metadata
+                for chunk in chunks:
+                    chunk.metadata['source'] = uploaded_file.name
+                
+                all_chunks.extend(chunks)
+                
+                # Clean up temp file
+                os.unlink(tmp_path)
+        
+        # Create new database with all chunks
+        with st.spinner(f"💾 Creating database with {len(all_chunks)} chunks..."):
+            db = Chroma.from_documents(
+                all_chunks,
+                get_embedding_function(),
+                persist_directory=CHROMA_PATH
+            )
+            db.persist()
+        
+        return True, len(all_chunks)
+    
+    except Exception as e:
+        return False, str(e)
+
 def query_rag(query_text: str, api_key: str = None):
     """Query the RAG system"""
     try:
@@ -94,9 +148,29 @@ def query_rag(query_text: str, api_key: str = None):
 def main():
     st.title("📚 RAG Document Q&A System")
     st.markdown("Ask questions about your documents using AI-powered search")
-    
+
     # Sidebar
     with st.sidebar:
+        st.header("📤 Upload PDFs")
+        st.markdown("Upload your own PDF files to ask questions about them!")
+        
+        uploaded_files = st.file_uploader(
+            "Choose PDF files",
+            type="pdf",
+            accept_multiple_files=True,
+            help="Upload one or more PDF files to analyze"
+        )
+        
+        if uploaded_files:
+            if st.button("🔄 Process Uploaded PDFs", type="primary"):
+                success, result = process_uploaded_pdfs(uploaded_files)
+                if success:
+                    st.success(f"✅ Successfully processed {len(uploaded_files)} PDF(s) with {result} chunks!")
+                    st.balloons()
+                else:
+                    st.error(f"❌ Error: {result}")
+        
+        st.divider()
         st.header("⚙️ Settings")
         
         # API Key input
