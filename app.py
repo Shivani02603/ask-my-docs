@@ -117,17 +117,24 @@ def query_rag(query_text: str, api_key: str = None):
     try:
         # Prepare the DB
         embedding_function = get_embedding_function()
-        
+
         if not os.path.exists(CHROMA_PATH):
             # Try to initialize automatically
             if not initialize_database():
                 return "⚠️ Database initialization failed. Please check the logs.", []
+
+        db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
+
+        # Search the DB
+        results = db.similarity_search_with_score(query_text, k=5)
+
+        if not results:
             return "No relevant documents found.", []
-        
+
         context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
         prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
         prompt = prompt_template.format(context=context_text, question=query_text)
-        
+
         # Use OpenAI if API key provided, otherwise return context only
         if api_key:
             try:
@@ -137,12 +144,13 @@ def query_rag(query_text: str, api_key: str = None):
                 response_text = f"⚠️ Error with OpenAI API: {str(e)}\n\nRelevant context found:\n{context_text}"
         else:
             response_text = f"💡 No API key provided. Here's the relevant context:\n\n{context_text}"
-        
+
         sources = [doc.metadata.get("id", "Unknown") for doc, _score in results]
-        
+
         return response_text, sources
-        
+
     except Exception as e:
+        return f"❌ Error: {str(e)}", []
         return f"❌ Error: {str(e)}", []
 
 def main():
