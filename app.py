@@ -228,7 +228,18 @@ def main():
         st.caption("Built with LangChain + ChromaDB + Streamlit")
     
     # Main area
-    col1, col2 = st.columns([3, 1])
+    # Check if database exists first
+    if not os.path.exists(CHROMA_PATH):
+        st.info("👈 **Get started by uploading your PDF documents in the sidebar!**")
+        st.markdown("""
+        ### How to use:
+        1. Click **Browse files** in the sidebar
+        2. Select one or more PDF files
+        3. Click **Process PDFs** button
+        4. Then ask questions about your documents!
+        """)
+        return
+    
     
     with col1:
         query = st.text_area(
