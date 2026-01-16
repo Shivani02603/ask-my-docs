@@ -125,21 +125,18 @@ def query_rag(query_text: str, api_key: str = None):
 
         db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
-        # Search the DB with better relevance
-        results = db.similarity_search_with_score(query_text, k=3)
+        # Search the DB - get top 5 results
+        results = db.similarity_search_with_score(query_text, k=5)
 
         if not results:
-            return "No relevant documents found.", []
+            return "No documents found in database. Please upload PDFs first.", []
 
-        # Filter results by relevance score (lower is better for distance metrics)
-        relevant_results = [(doc, score) for doc, score in results if score < 1.5]
+        # Use top 3 results (relaxed filtering - show results even if not perfect match)
+        top_results = results[:3]
         
-        if not relevant_results:
-            return "No sufficiently relevant information found. Try rephrasing your question.", []
-
         # Build focused context from top results
         context_parts = []
-        for idx, (doc, score) in enumerate(relevant_results, 1):
+        for idx, (doc, score) in enumerate(top_results, 1):
             context_parts.append(f"[Excerpt {idx}]:\n{doc.page_content}")
         
         context_text = "\n\n".join(context_parts)
@@ -156,11 +153,11 @@ def query_rag(query_text: str, api_key: str = None):
                 response_text = f"⚠️ Error with OpenAI API: {str(e)}\n\n**Relevant information found:**\n\n{context_text}"
         else:
             # Format a better response without API
-            response_text = f"**📌 Based on your question: '{query_text}'**\n\n"
+            response_text = f"**📌 Question: '{query_text}'**\n\n"
             response_text += f"**Here are the most relevant excerpts from your documents:**\n\n{context_text}\n\n"
             response_text += f"💡 *Tip: Add an OpenAI API key in settings for AI-generated answers.*"
 
-        sources = [doc.metadata.get("source", "Unknown") for doc, _score in relevant_results]
+        sources = [doc.metadata.get("source", "Unknown") for doc, _score in top_results]
 
         return response_text, sources
 
